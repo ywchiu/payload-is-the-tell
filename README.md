@@ -19,7 +19,7 @@ We asked a simple question: **if the fake accounts are LLM agents, which of the 
 
 ## Who, when, where
 
-- **Who:** David Chiu, LargitData (Taipei, Taiwan).
+- **Who:** Yu-Wei Chiu, LargitData Inc. (Taipei, Taiwan).
 - **When:** built during the Apart Research Swarm Alignment Hackathon, 6–9 November 2026.
 - **Where:** real Taiwanese social media from October 2026: 33.7k messages from 25k accounts on Threads, Facebook pages, PTT and Mobile01.
 
@@ -99,4 +99,4 @@ See [REPRODUCE.md](REPRODUCE.md) for the pipeline and file overview.
 
 ## Disclosure
 
-The data source is InfoMiner, a social-listening product of LargitData, the author's company. The author has a commercial interest in coordination-detection products.
+The data source is InfoMiner, a social-listening product of LargitData Inc., the author's company. The author has a commercial interest in coordination-detection products.
