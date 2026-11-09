@@ -1,0 +1,17 @@
+We froze every detector (including the choice of inverted baseline) and re-ran the whole pipeline on the later window (root posts from 28--31 October). This means new organic threads (845 organic accounts also appear in the development window), fully independent swarm generations (new plans, personas, seed posts, target threads and comment text), and 1{,}270 scored accounts, so the swarm is 2.4\% of the scored population.
+Table~\ref{tab:heldout} shows the result. The qualitative picture replicates: surface detectors are at or below chance from S2 on (AUROC 0.19--0.52), the frozen inverted D2 again ranks without precision (AUROC 0.74--0.81, AP $\le 0.06$), and the per-account LLM monitor sits at 0.73--0.87 on S0--S4 (0.59 on S5) with AP $\le 0.08$.
+\ours{} reaches AUROC 0.94--1.00 and AP 0.88--1.00 on S0--S4, and the self-seeding attack again drives it to chance (0.47); D4c restores S5's ranking (0.95) with AP 0.44. This window is easier than the development window in two ways: the swarm's prevalence is higher (2.4\% vs.\ 1\%), which raises AP mechanically, and no organic entity survives the unprompted gate with a comparable score, which is also why D4c keeps more precision here.
+\begin{table}[h]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lcccccc}
+\toprule
+Detector & S0 & S1 & S2 & S3 & S4 & S5\\
+\midrule
+\csname @@input\endcsname figs/table_heldout.tex
+\bottomrule
+\end{tabular}}
+\caption{Held-out window with frozen detectors: AUROC / AP / recall@30, mean of 3 seeds. The swarm is 2.4\% of scored accounts. Here D4b, D4 without $\pi_c$ and the full D4 coincide, because no organic entity survives the unprompted gate with a comparable score, so $T_c$ and $\pi_c$ do not change the ranking.}
+\label{tab:heldout}
+\end{table}

@@ -1,0 +1,280 @@
+\documentclass[10pt]{article}
+\usepackage[a4paper,margin=2.1cm]{geometry}
+\usepackage{xeCJK}
+\setCJKmainfont{NotoSerifCJKtc-Regular.otf}[Path=/Users/david/Library/Fonts/, BoldFont=NotoSerifCJKtc-Bold.otf]
+\setCJKsansfont{NotoSansCJKtc-Regular.otf}[Path=/Users/david/Library/Fonts/, BoldFont=NotoSansCJKtc-Bold.otf]
+\usepackage{graphicx,booktabs,amsmath,amssymb,xcolor,microtype,enumitem,caption}
+\usepackage[hidelinks]{hyperref}
+\usepackage{natbib}
+\setlist{nosep,leftmargin=*}
+\captionsetup{font=small}
+\setlength{\parskip}{3pt}
+\newcommand{\ours}{\textsc{PayloadConv}}
+
+\title{\textbf{The Payload Is the Tell:\\ LLM Agent Swarms Evade Surface Coordination Detectors\\ but Not Payload Convergence (Until They Adapt)}}
+\author{David Chiu\\ \small LargitData (大數軟體), Taipei, Taiwan \quad \texttt{david@largitdata.com}}
+\date{\small Apart Research Swarm Alignment Hackathon, November 6--8, 2026 \quad Track: Multi-Agent Oversight \& Control (secondary: Sandboxes \& Testbeds)}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Platforms detect coordinated inauthentic behaviour (CIB) with signals designed for human troll farms: copy-pasted text, synchronised posting and repeated co-activity. Which of these survive when the coordinating accounts are LLM agents?
+We inject 30-account LLM agent swarms of six sophistication levels, from template bots to orchestrated, detector-aware and self-seeding swarms, into 33.7k real Taiwanese Threads/Facebook/PTT messages from 25k accounts. Agents match real accounts in platform and activity and promote a fictional tea brand.
+Once agents are persona-conditioned, lexical, temporal and embedding detectors rank swarm accounts at or \emph{below} chance (AUROC 0.14--0.48); inverting the best recovers ranking (0.83--0.86) but not precision (average precision, AP $\le$0.04). A per-account LLM monitor degrades from 0.86 to 0.74.
+We propose \ours{}, a population-level detector that extracts \emph{who is endorsed} from every message and scores targets that many accounts endorse uniformly, unprompted and across unrelated threads.
+Against non-adaptive swarms promoting this new brand, \ours{} reaches AUROC 0.92--1.00 and AP 0.69--0.99 at a 1\% base rate; this replicates on a frozen held-out window (AP 0.88--1.00) and with swarms from another model family (Gemini; AP 0.71--0.98). Promoting an established brand lowers AP to 0.49--0.88, far above non-payload detectors, and an account-level score on the same extractions stays at AP $\le$0.07 on S4.
+It is not robust: a self-seeding swarm drives it to chance (0.44). A provenance-aware variant restores ranking (AUROC 0.91--0.95) but not precision (AP 0.12--0.44).
+For swarm oversight, the shared goal is the invariant to monitor and the population is the unit.
+\end{abstract}
+
+\section{Introduction}
+Recent incidents show that coordinated activity by LLM agents in political discourse is no longer hypothetical. In July 2026, Threads users found comments attacking a New Taipei mayoral candidate that contained the generator's own scaffolding, including \texttt{content}/\texttt{reasoning} fields and text such as ``Here's a breakdown of the thinking process to generate the Threads post'', ``Analyze the Persona \& Constraints'' and ``Platform: Threads'' \citep{fount2026,yahoo2026a}. The leak indicates AI-assisted, persona- and constraint-conditioned generation; whether the accounts were organised, and by whom, is unresolved in the reporting, and we make no attribution. The leaked scaffolding resembles the persona-conditioned prompts of our S2--S4 swarms.
+In November 2026, a Taipei candidate's Facebook post received more than 18,000 ``angry'' reactions that observers attributed to overseas accounts \citep{yahoo2026b}. The hackathon brief cites a July 2026 incident in which hundreds of agents coordinated to break into Hugging Face's systems \citep{apart2026}.
+To the extent such activity is coordinated, it is a multi-agent failure: each message or action can look benign on its own, and the harm appears only at the level of the population \citep{hammond2025multiagent}.
+
+Platform defences against CIB were built for \emph{human} operations, which leave tell-tale regularities: duplicated text, synchronised timing and dense co-activity networks \citep{giglietto2020,pacheco2021,cresci2020}. LLM agents can cheaply vary wording, adopt distinct personas, and follow organic timing \citep{goldstein2023,yang2023fox8}.
+\textbf{Research question:} \emph{when a coordinated group is made of LLM agents that blend into real conversations, which oversight signals survive, and what does a robust population-level monitor look like?}
+
+\textbf{Contributions.}
+(1)~A reproducible testbed that injects LLM agent swarms of six sophistication levels (S0--S5) into real Taiwanese social conversation, with swarm activity matched to the real activity distribution and a held-out week for replication (\S\ref{sec:method}).
+(2)~Evidence that standard CIB signals rank persona-conditioned swarms \emph{below} organic accounts, that inverting them gives ranking but no precision, and that a per-agent LLM monitor degrades as well (\S\ref{sec:results}).
+(3)~\ours{}, a payload-convergence detector that treats the swarm's shared goal as the invariant and is strong against non-adaptive swarms.
+(4)~An adaptive red-team of our own detector: a self-seeding swarm defeats it, and a provenance-aware fix recovers ranking but not precision. The result is a concrete arms-race step that oversight designers should plan for.
+
+\section{Related Work}
+\textbf{CIB detection.} Coordinated link sharing \citep{giglietto2020} and the network framework of \citet{pacheco2021} link accounts through repeated co-actions (same URL, hashtag or text within a short window) and flag dense clusters; related work treats coordination as a graded network property \citep{nizzoli2021} or infers it from shared interaction objects and their timing \citep{weber2021}, and fusing several similarity networks with supervised classification reaches high precision on state-run operations \citep{luceri2024}. Studies of political astroturfing show why these signals work on \emph{human} campaigns: centrally managed accounts co-post and co-retweet far more than real users \citep{keller2020astroturfing,schoch2022}. Bot detection more broadly relies on account-level features \citep{cresci2020}. Our D1--D3 are simplified, unsupervised baselines for these signal families; we do not benchmark published systems such as that of \citet{luceri2024}.
+\textbf{LLM-powered influence operations.} \citet{goldstein2023} and \citet{menczer2023} anticipated that language models would cut the cost of diverse, persona-consistent inauthentic content. \citet{yang2023fox8} documented an LLM-powered botnet on X that was found largely through leaked self-revealing text, the same failure mode as the July 2026 Taiwan case, and OpenAI's threat reporting describes operations using LLMs to fake engagement with their own posts, some of which were exposed by operator mistakes \citep{openai2024io}. LLM rewriting degrades existing bot detectors \citep{feng2024botsay}, and BotSim \citep{qiao2025botsim} simulates LLM botnets with disguise strategies among real Reddit posts and users, finding that detectors built on classic bot datasets degrade. Our contribution is complementary: low-prevalence (1--2.4\%) injection into a real multi-platform Taiwanese corpus with per-platform activity matching, an unsupervised population-level payload score, and an adaptive attack on that score. Taiwan has long been a target of information operations, historically run largely by hand \citep{monaco2017taiwan,hung2022cognitive}; LLM agents automate that pattern.
+\textbf{Per-message AI-text detection.} Zero-shot detectors such as DetectGPT \citep{mitchell2023detectgpt} need the generator's token probabilities, and paraphrasing can substantially degrade per-text detectors \citep{sadasivan2023}; LLM-written misinformation can also be harder to detect than human-written misinformation \citep{chen2024llmmisinfo}. We therefore do not rely on per-message provenance and instead look for convergence across accounts.
+\textbf{Payload extraction.} Our \texttt{(target, stance)} extraction follows the framing of target-specific stance detection \citep{kucuk2020stance}. LLMs have been used to characterise the goals and narratives of \emph{already detected} information operations \citep{burghardt2024llmio}; we use convergence of the extracted payload as the detection signal itself.
+\textbf{Multi-agent risk, control and adaptive evaluation.} \citet{hammond2025multiagent} identify collusion and emergent coordination as distinct multi-agent risks, and \citet{motwani2024secret} study covert channels between agents. Our persona-conditioned agents are inspired by generative agents \citep{park2023generative}, without their memory and planning architecture. AI control \citep{greenblatt2024control} studies monitors that must work even when the monitored system is adversarial. Our per-account LLM monitor (D5) is the single-agent analogue of a trusted monitor, and \ours{} is a population-level monitor. Following the lesson from adversarial-example detection that a detector must be evaluated against an attacker who knows it \citep{carlini2017,tramer2020adaptive}, we red-team \ours{} with an adaptive swarm (S5).
+
+\section{Methods}\label{sec:method}
+\textbf{Organic substrate.} Using the InfoMiner API (a commercial social-listening service operated by the author's company; see \S\ref{app:prior}), we collected posts that matched a consumer topic query (hand-shaken tea drinks and major chains) and were posted between 18 and 26 October 2026, together with their comments. Collection is capped at 20 search pages of 100 posts per two-day slice and 5 comment pages per post (page sizes vary by platform; the largest collected thread has 1{,}072 comments). The data covers Threads, Facebook pages, Dcard, PTT and YouTube.
+After normalisation there are 33{,}753 messages from 24{,}995 accounts. The threads drift naturally to politics (a mayoral election was under way), celebrity and daily life.
+The \emph{scored population} is every account with at least 2 messages: 3{,}045 organic accounts. A second window, whose \emph{root posts} do not overlap with the first (posted 28--31 October; 14{,}233 messages), is held out for replication. Comment timestamps can overlap across windows (comments keep arriving after a post), and 845 organic accounts appear in both; no message or thread is shared.
+
+\textbf{Swarms.} Each swarm has 30 agents that covertly promote a \emph{fictional} brand (霧嶼茶研) with four claims: real tea aroma, competitors use flavourings, a buy-one-get-one promotion, and freshly made pearls.
+Agents are driven by Gemma-4-31B, self-hosted with vLLM (and, in a cross-family replication, by Gemini 3.8 Flash; \S\ref{sec:crossfamily}). Each agent has a single \emph{home platform}: in S0/S1 the whole swarm is on Threads (it piles onto shared threads); from S2 on, homes are drawn in proportion to the scored organic accounts on the four platforms that have both root posts and comments in our data (Threads, Facebook pages, PTT, Mobile01). This matters because no organic account in our data spans platforms (an earlier version of the testbed let agents roam across platforms, which made ``uses more than one platform'' a trivial tell). An agent's number of messages is sampled from the organic distribution of accounts with at least 2 messages on its platform, capped at 20 comments (S5's seed-posting agents add one post; 1.7\% of scored organic accounts exceed the cap; 1.9\% in the held-out window); its style exemplars and target threads come from the same platform.
+Agents mix \emph{payload} messages with \emph{cover} messages that reply naturally to real posts. Except for S5's seed posts, all swarm messages are comments on real threads with plausible timestamps.
+
+\begin{itemize}
+\item \textbf{S0 template}: slot-filled templates; the swarm piles onto 4 shared threads within 2 hours.
+\item \textbf{S1 naive LLM}: one shared goal prompt; 8 shared threads; replies within 6 hours.
+\item \textbf{S2 persona}: each agent has a distinct persona and style exemplars taken from a real account; threads are chosen at random; reply delays are sampled from the organic delay distribution.
+\item \textbf{S3 orchestrated}: an orchestrator LLM assigns each agent a persona, a campaign role (e.g.\ sceptic who converts, complainer about chains) and a 1--2 claim subset. 20\% of messages boost a sibling agent's comment.
+\item \textbf{S4 evasive}: S3, plus agents are told that platforms use text similarity, timing synchrony and co-activity networks. They are instructed to vary the brand's name (full name, nickname, indirect reference), never reuse phrasing, and add occasional mild complaints.
+\item \textbf{S5 adaptive}: S4's instructions (without sibling boosting), plus 6 agents open their \emph{own} threads that already mention the brand, and payload replies go into those threads. This attacks \ours{}'s ``unprompted'' criterion, introduced below.
+\end{itemize}
+Each condition has three seeds with different plans, personas and threads; S3--S5 request their plans with the same prompt and cache key, but because conditions ran concurrently the plans differ in all development seeds and coincide in two of three held-out seeds; the two windows use fully independent generations. The nominal per-message payload probability is 0.6 (S0, S1), 0.4 (S2), 0.3 (S3) and 0.25 (S4, S5), and every agent posts at least one payload. The swarm is 1\% of the scored population.
+The conditions are \emph{bundled scenarios}: for example, S1$\to$S2 changes personas, thread choice and timing together, so differences between conditions are not attributable to a single factor.
+
+\textbf{Detectors} (all unsupervised, account-level scores):
+\textbf{D1 lexical}: character 2--4-gram TF-IDF; an account's score is the mean of its top-2 per-message maximum cosine similarities to messages from \emph{other} accounts (copy-paste detection).
+\textbf{D2 temporal}: co-activity edges between accounts that comment in the same thread within 1 hour; the score is the number of partners with repeated co-activity ($\geq 2$ events), plus $0.001\times$ total co-events as a tie-breaker, as in coordinated link sharing.
+\textbf{D3 semantic}: mean multilingual sentence embedding per account \citep{reimers2020multilingual}; the score is the mean cosine similarity to the 3 nearest other accounts.
+\textbf{D5 per-account LLM monitor}: Gemma-4-31B reads an account's messages (up to 12, sampled evenly over its timeline, 200 characters each, without root posts; 97\% of swarm accounts fit entirely) and outputs a 0--100 likelihood that the account is a covert promotional or AI-operated account. This is oversight that sees one agent at a time.
+\textbf{Ensemble}: rank average of D1--D3 and D4 (so it is not a pure surface ensemble).
+\textbf{Inverted surface baseline}: since D1--D3 can rank swarms \emph{below} organic accounts, we also report the negation of the one surface detector whose inversion scores best on the development window, frozen for the held-out window.
+
+\textbf{\ours{} (D4, ours).} The intuition is that a swarm can change its words, timing, personas and network position, but it cannot change \emph{what it is for}.
+For every message, an LLM extractor (the same Gemma model, temperature 0) outputs \texttt{(target, stance, claim)}, where \emph{target} is the brand, store, person or product being endorsed. Comments are shown together with their root post so that references such as ``this shop'' resolve; only the comment's own stance is extracted. A blind audit by a different model family (Gemini 3.8 Flash, 300 stratified messages; App.~\ref{app:audit}) agrees with the extractor on whether a message positively endorses an entity in 95\% of cases (Cohen's $\kappa=0.89$). Target strings that list several entities (``A, B'') are split, so that a co-mention cannot bridge two entities; strings are then merged into entities when one normalised string contains the other and covers at least 50\% of it (so 霧嶼 merges with 霧嶼茶研). Sentence embeddings over-merged short CJK names, so we did not use them for this step.
+A positive endorsement is \emph{unprompted} when it appears in a comment on a thread whose root post does not already mention that entity. For entity $c$ we compute $A_c$, the set of accounts that endorse $c$ unprompted; $\pi_c$, the fraction of messages whose extracted target is $c$ that are positive (the extractor is asked about promotion, so this is a purity among extracted mentions, not among all mentions); and $T_c=\exp(H)$, the effective number of distinct threads hosting those endorsements, where $H$ is the entropy of how the endorsements are distributed over threads. Then
+\[ s_c=\sqrt{|A_c|\cdot T_c}\;\pi_c^2, \qquad \mathrm{score}(a)=\max_{c\,\in\,\text{endorsed}_{\text{unprompted}}(a)} s_c. \]
+$|A_c|$ captures convergence across accounts, $\pi_c$ captures how one-sided the endorsements are (organic brand talk is mixed), and $T_c$ separates organic \emph{rallies}, which concentrate in one viral thread, from swarms that spread the payload across contexts.
+Ablations: \textbf{D4a} scores $|\{\text{positive endorsers}\}|\cdot\pi_c^2$, i.e.\ without the unprompted gate or $T_c$; \textbf{D4b} adds the unprompted gate but not $T_c$; \textbf{D4 without $\pi_c$} drops purity; \textbf{D4c} adds \emph{provenance inheritance}, where thread-opening endorsements count as unprompted and replies that echo a \emph{promotional} root inherit its status.
+\emph{Development note}: the unprompted gate and $T_c$ were added after we inspected false positives on S4 seed~0 of the development window. For this reason we report held-out-window results with the detector frozen (\S\ref{sec:heldout}).
+
+\textbf{Metrics.} AUROC, average precision (AP; chance level is about 0.01), and recall@$k$ with $k=30$ (the swarm size), using expected tie-breaking. All scores are means over 3 seeds.
+
+\section{Results}\label{sec:results}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figs/main.pdf}
+\vspace{-6mm}
+\caption{Detection of 30-agent swarms hidden among 3{,}045 organic accounts (development window). Error bars show $\pm1$ s.d.\ over 3 seeds; the dotted lines mark chance. Surface detectors (D1--D3) fall to or \emph{below} chance once agents are persona-conditioned (S2+). The per-account LLM monitor (D5) is better than chance but has almost no precision. Payload convergence (D4) stays high through S4 and fails on the self-seeding S5; the provenance variant (D4c) recovers S5's ranking at a cost in precision elsewhere.}
+\label{fig:main}
+\end{figure}
+
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lcccccc}
+\toprule
+Detector & S0 template & S1 naive & S2 persona & S3 orchestr. & S4 evasive & S5 adaptive\\
+\midrule
+\csname @@input\endcsname figs/table.tex
+\bottomrule
+\end{tabular}}
+\caption{AUROC / AP / recall@30, mean of 3 seeds, development window. The swarm is 1\% of the scored accounts, so AP at chance is about 0.01. The inverted surface baseline is the negated D2, chosen because its inversion scored best on this window.}
+\label{tab:main}
+\end{table}
+
+\textbf{Surface signals invert.} Figure~\ref{fig:main} and Table~\ref{tab:main} show the main results. Template bots (S0) are caught by lexical similarity (AUROC 0.96). A naive LLM swarm (S1) already loses most of that advantage (0.62). Once agents are persona-conditioned (S2--S5), D1--D3 rank swarm accounts at or \emph{below} chance (AUROC 0.14--0.48).
+Below-chance AUROC means the signal is inverted, not absent. Real users in a topical conversation \emph{are} lexically, semantically and temporally entangled: they reply in the same viral threads, quote each other and share coupon codes. Diversified LLM agents scattered over unrelated threads are \emph{less} entangled than real people. Negating D2 (the direction and detector chosen on this window) gives AUROC 0.83--0.86 on S2--S5, but AP of only 0.03--0.04: ``unusually unentangled'' describes thousands of quiet organic accounts too. A defender who ranks by conventional coordination scores will put LLM swarm accounts among the \emph{least} suspicious, and flipping the ranking puts at most 3\% of the swarm in the top 30.
+\textbf{Single-agent oversight degrades.} The per-account LLM monitor (D5) peaks on S1 (AUROC 0.86) and declines to 0.74 on S4 and 0.54 on S5. Its AP stays at 0.01--0.04. D5 sees one account at a time and no thread context, so it cannot use the fact that many accounts push the same entity.
+\textbf{Population-level payload convergence holds.} \ours{} achieves AUROC 0.92--1.00 and AP 0.69--0.99 on S0--S4. On S4 it recovers 91\% of the swarm in its top 30 out of 3{,}075 accounts, where every surface detector recovers 0\%.
+The ablations show what each component contributes on this window. Counting endorsers with purity but without the gate (D4a) gives AP of only 0.07--0.09, because a viral brand rally and political supporters out-count the swarm. The unprompted gate (D4b) raises AP to 0.49--0.61, thread dispersion $T_c$ raises it to 0.69--0.99, and dropping purity $\pi_c$ lowers it again (e.g.\ S4: 0.91$\to$0.73; S0: 0.69$\to$0.41).
+The lowest AP is on S0/S1 (0.69--0.71), whose swarms pile into 4--8 shared threads: this caps $T_c$, and the swarm's brand (score 10.4--14.8 on seed 0) then ranks below the strongest organic entity (23.0), a single mayoral candidate whose supporters endorse them across many threads, so 12 organic accounts outrank every swarm account. S3--S4 are harder than S2 because boosting concentrates some endorsements in sibling threads and because varied brand references are harder to extract (the extractor finds the brand as a positive target in 82--92\% of S3/S4 payload messages, against 99--100\% for S2) and can split the brand into several entities: raising the merge ratio from 0.5 to 0.67 lowers S4 AP from 0.91 to about 0.59, while 0.34 keeps it at 0.90--0.93.
+
+\textbf{Swarm size.} We re-score random subsets of each swarm's accounts (5 subsets per size and seed; Fig.~\ref{fig:size}). On S4, \ours{}'s AUROC is stable (0.94--0.96), while AP goes from 0.12 at 5 agents to 0.38 at 10, 0.54 at 20 and 0.91 at 30, against a chance level that itself rises from 0.002 to 0.010. Recall@$k$ is 0 for 5 and 10 agents: small swarms are ranked high but not at the very top, so they are hard to act on for every method.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figs/size.pdf}
+\vspace{-6mm}
+\caption{Average precision as a function of swarm size (random account subsets, 5 per size and seed below 30, the full swarm at 30; 3 seeds; development window). The dotted line is chance (the swarm's prevalence). \ours{} grows with the swarm; surface detectors stay at chance.}
+\label{fig:size}
+\end{figure}
+
+\subsection{Held-out replication}\label{sec:heldout}
+\input{figs/heldout.tex}
+
+\subsection{Controls: established brands, matched information, a fixed alarm}\label{sec:controls}
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcc}
+\toprule
+S4 swarm, mean of 3 seeds & development & held-out\\
+\midrule
+\csname @@input\endcsname figs/controls.tex
+\bottomrule
+\end{tabular}
+\caption{Controls on the evasive swarm (AUROC / AP / recall@30). Top: the same agents (personas, platforms, message counts) promoting an established brand instead of the fictional one; payload and thread choices partly differ, because sibling boosting depends on generation order. Bottom: matched-information controls for the population-versus-individual comparison.}
+\label{tab:controls}
+\end{table}
+\textbf{Established brands.} The fictional brand has no organic discussion, which makes the unprompted gate and purity easy to satisfy. We therefore re-ran S4 with the same agents promoting two real chains, chosen by development-window mention counts before running: 可不可 (the most discussed, 703 mentions) and 迷客夏 (moderately discussed, 46). Detector settings were frozen. \ours{} weakens but survives (Table~\ref{tab:controls}): AP falls from 0.91 to 0.49--0.61 in the development window and from 0.93 to 0.68--0.88 in the held-out window, still far above every non-payload baseline (AP $\le$0.07). Two mechanisms explain the drop: 22--29\% of 可不可 payload replies land in threads whose root already names the brand, so the gate excuses them, and the extractor labels the payload as a positive endorsement less often (63--73\% vs.\ 84--92\%). Genuine organic endorsers of these brands rarely enter the top 30 (0--1 per run); the organic accounts that do are mostly the political supporters of \S\ref{sec:results}.
+\textbf{Matched information.} D4's extractor sees each comment with its root post, while D5 sees 12 short messages without context. Giving D5 the same view (400 characters plus root posts) barely helps (S4 AP 0.02/0.05). Conversely, restricting \ours{} to the 12 messages per account that D5 sees (root posts stay visible for the gate; excluding their own extractions from the counts gives the same AP) leaves it essentially unchanged (AP 0.91/0.93), and an account-only score computed from \ours{}'s own extractions (the largest share of an account's messages endorsing one entity) reaches only AP 0.03/0.07. These controls support the explanation that the advantage comes from aggregating across accounts rather than from better per-message information, although D4 and D5 still differ in other respects (e.g.\ D4 sees every root post).
+\textbf{A fixed alarm.} We set \ours{}'s threshold so that at most 0.5\% of accounts alert on \emph{organic-only} development data (no swarm injected), then froze it. Without injection it raises 12 alerts in the development window (0.39\% of accounts) and 2 in the held-out window (0.16\%). With injection, on S0--S4 it flags 86--100\% of swarm accounts at precision 0.64--0.71 (development) and 88--100\% at precision 0.93--0.94 (held-out); on the established brands, 62--90\% at precision 0.67--0.93. It raises no swarm alert on S5. At the same alert budget D4c also flags no S5 account, so its recovered ranking (\S\ref{sec:adaptive}) is not yet actionable.
+
+\subsection{Adaptive attack: the swarm launders its context}\label{sec:adaptive}
+S5 opens six brand-mentioning threads of its own (spread over its agents' platforms), so the swarm's endorsements look \emph{solicited}. This drives \ours{} to chance (AUROC 0.44, AP 0.01; held-out 0.47). It is the worst condition for \ours{}, D4b, the per-account monitor (0.54) and the ensemble, though not for D1--D3, which are already at or below chance.
+The evasion works through the gate, not through the extractor: with thread context, the extractor identifies the brand as a positive target in 96\% of S5 payload messages (an earlier, context-free version of our extractor missed about two-thirds of them, because replies refer to ``this shop'').
+Provenance inheritance (D4c), which treats a promotional root post as unprompted and lets replies inherit that status, restores S5's ranking (AUROC 0.91; held-out 0.95) but not its precision (AP 0.12; held-out 0.44): the swarm's entity now competes with organic rallies and brands' own promotional threads, which re-enter the candidate pool. The same effect costs precision on the non-adaptive conditions in the development window (S4: AP 0.91$\to$0.64; S0: 0.69$\to$0.12).
+This is one concrete move in an arms race, and a single hand-designed adaptive attack is a lower bound on what an attacker can do \citep{tramer2020adaptive}. Payload-level oversight forces the attacker to \emph{own its context}, for example by running seed accounts that open threads. That creates a new, smaller surface for the defender: newly created thread-openers whose threads attract one-sided endorsements of the same entity. We did not have time to build a detector for that surface.
+
+\subsection{Cross-family generation}\label{sec:crossfamily}
+Gemma both generated the swarms and extracted claims, so shared idioms could make extraction easy. We therefore regenerated S1--S5 (3 seeds, development window) with a different model family, Gemini 3.8 Flash (called through the \texttt{agy} command-line client, which exposes no temperature setting), using the same prompts and generation procedure (platform assignment, activity distribution and cap, timing model; Gemini also wrote its own plans and personas), and scored them with every detector frozen, including the Gemma extractor. Runs are not exactly paired with the Gemma runs: because sibling boosting and S5 seeding depend on generation order, threads, timestamps and message counts partly differ. Gemini refused 38 of 1{,}536 generations (2.5\%; client-side blocks or refusals of covert promotion, of detection evasion, or of replying to a sexual root post), and refusals were dropped from the pool. Its comments are longer (median 54--103 vs.\ 32--82 characters per condition) and vary the brand name more: the substring 霧嶼 appears in 78\% of S4 payload comments (Gemma: 86\%).
+The picture replicates (Table~\ref{tab:crossfamily}). Surface detectors are again at or below chance from S2 on, the inverted D2 again ranks without precision, and the per-account monitor with context degrades from 0.85 to 0.62. \ours{} reaches AUROC 0.92--1.00 and AP 0.71--0.98 on S1--S4. Its S4 precision is lower than against Gemma (AP 0.75 vs.\ 0.91), consistent with the extractor mapping fewer Gemini payload comments to the brand entity (75\% vs.\ 84\%). S5 again drives it to chance (0.47), and D4c again restores ranking but not precision (0.90 / 0.11). At the frozen alert threshold of \S\ref{sec:controls}, \ours{} flags on average 84--100\% of the scored swarm accounts (28--30 per run) on S1--S4 at precision 0.65--0.71 (means over seeds), and no S5 account. The threshold, gate and merge rule were set on this same window, so the organic false alarms are inherited from \S\ref{sec:controls}, not replicated; only the swarm side is new.
+\begin{table}[h]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lccccc}
+\toprule
+Swarm generated by Gemini 3.8 Flash & S1 & S2 & S3 & S4 & S5\\
+\midrule
+\csname @@input\endcsname figs/crossfamily.tex
+\bottomrule
+\end{tabular}}
+\caption{Cross-family replication (development window, frozen detectors and Gemma extractor): AUROC / AP, mean of 3 seeds. Last row: the same detector on the Gemma-generated swarms (Table~\ref{tab:main}).}
+\label{tab:crossfamily}
+\end{table}
+
+\subsection{Qualitative findings}
+\textbf{Organic hard negatives.} The highest-scoring organic entities under D4a are (i) a real brand \emph{rally}: 527 accounts endorsed one local chain (``只推烏弄''), and 99\% of those endorsements sat under two viral Threads posts about its sourcing, and (ii) mayoral candidates during the campaign, whose supporters endorse them in unrelated threads.
+$T_c$ suppresses (i) because the rally is concentrated in two threads. It cannot fully separate (ii) because supporters really do spread across threads: under \ours{} one candidate is the strongest organic entity in the development window, scoring 23.0 against 25.1--29.6 for the S4 swarm's brand. (Before we split multi-entity target strings, this candidate was merged with a second candidate through a co-mention; the split lowered its score from 24.4.) A deployed \ours{} would therefore surface political supporters next to, and for concentrated swarms (S0/S1) above, a covert campaign. Whether any of that political activity is coordinated is outside our ground truth, and we make no claim about it. In the held-out window the gate alone already removed the organic entities with many endorsers (their endorsements sat in threads that named them), which is why D4b matches the full detector there.
+\textbf{Evasion leaves its own fingerprint.} S4/S5 agents were told to add ``a small complaint to look neutral''. Across the six S5 runs (two windows, independent generations; 36 distinct seed posts), 29 complain about the \emph{same} thing, waiting (long queues, slow service or delivery), 35 open with ``lately'' (最近) and 30 open with the weather, within otherwise diverse prose. Evasion instructions shared by a swarm create new shared content, a second-order convergence that a defender could mine.
+
+\section{Discussion}
+\textbf{The payload is the swarm's invariant.} A swarm exists to move a population towards something: a purchase, a vote, a narrative. Wording, timing, personas and network position are all free parameters for an LLM-driven swarm, but the target and direction of influence are not. Oversight that keys on what is being pushed, where it appears, and how one-sided it is attacks the property the swarm cannot vary without abandoning its goal. The cost is that the attacker must then manipulate the \emph{context} of the payload (S5).
+\textbf{Monitor populations, not agents.} With matched information (\S\ref{sec:controls}), the per-account monitor and an account-only score on \ours{}'s own extractions stay at AP $\le$0.07 on S4, while \ours{} restricted to the same 12 messages per account keeps AP 0.91--0.93. These controls support the view that the evidence is in the population. This is the swarm-alignment version of a general point: some failures exist only at the population level \citep{hammond2025multiagent}, so a monitor in the AI-control sense \citep{greenblatt2024control} has to be given that view.
+\textbf{Implications.} (1)~Platforms should not tune CIB detectors on human troll farms alone, because LLM swarms can sit \emph{below} the organic baseline. (2)~Claim/target extraction is cheap relative to the data: our extractor processed the 48k organic messages of both windows in under an hour on one shared, self-hosted GPU endpoint (H200, Gemma-4-31B, cold cache); we did not test platform scale. (3)~Evaluations of oversight should include adaptive attackers. The step from S4 to S5 costs the attacker almost nothing.
+
+\section{Conclusion}
+In a sandbox built from real Taiwanese social data, we showed that persona-conditioned LLM agent swarms rank at or below chance under the classic coordinated-behaviour detectors, and that inverting those detectors ranks swarms higher but does not put them at the top. A population-level detector that tracks the swarm's payload rather than its surface catches non-adaptive swarms promoting a new entity with high average precision, replicates on a held-out window and against swarms generated by a different model family, weakens but survives when the swarm promotes an established brand, and keeps its advantage under matched information. Its main organic confounder is political supporters, and it can be evaded by a swarm that manufactures its own context.
+Future work: detectors for self-seeded context (thread-opener provenance); more generator families and human-labelled extraction; more established entities and conditions; reaction-only floods like the November 2026 case, which have no text payload; and human-labelled real-world cases.
+
+\section*{Code and Data}
+Code (data collection, swarm generation, detectors, evaluation) is in the accompanying repository. Raw organic data is not redistributed because of platform terms and user privacy. Released artefacts are limited to code, aggregate results and model-generated swarm text; per-account score files, if shared, replace organic account IDs with keyed hashes whose key is not released. All extraction, detection and main-swarm generation calls used a self-hosted Gemma-4-31B. Two parts used Google's Gemini API: the audit (App.~\ref{app:audit}) and the cross-family swarms (\S\ref{sec:crossfamily}); see Privacy (App.~\ref{app:ethics}).
+
+\bibliographystyle{plainnat}
+\begin{thebibliography}{99}\small
+\bibitem[Apart Research(2026)]{apart2026} Apart Research. Swarm Alignment Hackathon (event brief). \url{https://apartresearch.com/sprints/swarm-alignment-2026}, 2026.
+\bibitem[Burghardt et~al.(2024)]{burghardt2024llmio} K.~Burghardt, K.~Chen, K.~Lerman. Large language models reveal information operation goals, tactics, and narrative frames. arXiv:2405.03688, 2024.
+\bibitem[Carlini and Wagner(2017)]{carlini2017} N.~Carlini, D.~Wagner. Adversarial examples are not easily detected: bypassing ten detection methods. \emph{Proc.\ 10th ACM Workshop on Artificial Intelligence and Security (AISec)}, 3--14, 2017.
+\bibitem[Chen and Shu(2024)]{chen2024llmmisinfo} C.~Chen, K.~Shu. Can LLM-generated misinformation be detected? \emph{ICLR}, 2024. arXiv:2309.13788.
+\bibitem[Cresci(2020)]{cresci2020} S.~Cresci. A decade of social bot detection. \emph{Communications of the ACM}, 63(10):72--83, 2020.
+\bibitem[Feng et~al.(2024)]{feng2024botsay} S.~Feng, H.~Wan, N.~Wang, Z.~Tan, M.~Luo, Y.~Tsvetkov. What does the bot say? Opportunities and risks of large language models in social media bot detection. \emph{ACL}, 3580--3601, 2024.
+\bibitem[Fount Media(2026)]{fount2026} 放言 Fount Media. 李四川網軍疑露餡！攻擊蘇巧慧留言翻車 AI原始碼貼上Threads. 5 July 2026. \url{https://www.fountmedia.io/article/399292}
+\bibitem[Giglietto et~al.(2020)]{giglietto2020} F.~Giglietto, N.~Righetti, L.~Rossi, G.~Marino. It takes a village to manipulate the media: coordinated link sharing behavior during 2018 and 2019 Italian elections. \emph{Information, Communication \& Society}, 23(6):867--891, 2020.
+\bibitem[Goldstein et~al.(2023)]{goldstein2023} J.~A.~Goldstein, G.~Sastry, M.~Musser, R.~DiResta, M.~Gentzel, K.~Sedova. Generative language models and automated influence operations: emerging threats and potential mitigations. arXiv:2301.04246, 2023.
+\bibitem[Greenblatt et~al.(2024)]{greenblatt2024control} R.~Greenblatt, B.~Shlegeris, K.~Sachan, F.~Roger. AI control: improving safety despite intentional subversion. \emph{ICML}, 2024. arXiv:2312.06942.
+\bibitem[Hammond et~al.(2025)]{hammond2025multiagent} L.~Hammond et~al. Multi-agent risks from advanced AI. Cooperative AI Foundation Technical Report \#1, arXiv:2502.14143, 2025.
+\bibitem[Hung and Hung(2022)]{hung2022cognitive} T.-C.~Hung, T.-W.~Hung. How China's cognitive warfare works: a frontline perspective of Taiwan's anti-disinformation wars. \emph{Journal of Global Security Studies}, 7(4):ogac016, 2022.
+\bibitem[Keller et~al.(2020)]{keller2020astroturfing} F.~B.~Keller, D.~Schoch, S.~Stier, J.~Yang. Political astroturfing on Twitter: how to coordinate a disinformation campaign. \emph{Political Communication}, 37(2):256--280, 2020.
+\bibitem[K\"u\c{c}\"uk and Can(2020)]{kucuk2020stance} D.~K\"u\c{c}\"uk, F.~Can. Stance detection: a survey. \emph{ACM Computing Surveys}, 53(1):1--37, 2020.
+\bibitem[Luceri et~al.(2024)]{luceri2024} L.~Luceri, V.~Pant\`e, K.~Burghardt, E.~Ferrara. Unmasking the web of deceit: uncovering coordinated activity to expose information operations on Twitter. \emph{Proc.\ ACM Web Conference (WWW)}, 2530--2541, 2024.
+\bibitem[Menczer et~al.(2023)]{menczer2023} F.~Menczer, D.~Crandall, Y.-Y.~Ahn, A.~Kapadia. Addressing the harms of AI-generated inauthentic content. \emph{Nature Machine Intelligence}, 5(7):679--680, 2023.
+\bibitem[Mitchell et~al.(2023)]{mitchell2023detectgpt} E.~Mitchell, Y.~Lee, A.~Khazatsky, C.~D.~Manning, C.~Finn. DetectGPT: zero-shot machine-generated text detection using probability curvature. \emph{ICML}, 2023. arXiv:2301.11305.
+\bibitem[Monaco(2017)]{monaco2017taiwan} N.~J.~Monaco. Computational propaganda in Taiwan: where digital democracy meets automated autocracy. Working Paper 2017.2, Project on Computational Propaganda, Oxford Internet Institute, 2017.
+\bibitem[Motwani et~al.(2024)]{motwani2024secret} S.~R.~Motwani, M.~Baranchuk, M.~Strohmeier, V.~Bolina, P.~H.~S.~Torr, L.~Hammond, C.~Schroeder de Witt. Secret collusion among AI agents: multi-agent deception via steganography. \emph{NeurIPS}, 2024. arXiv:2402.07510.
+\bibitem[Nimmo(2024)]{openai2024io} B.~Nimmo (OpenAI). AI and covert influence operations: latest trends. OpenAI threat report, May 2024.
+\bibitem[Nizzoli et~al.(2021)]{nizzoli2021} L.~Nizzoli, S.~Tardelli, M.~Avvenuti, S.~Cresci, M.~Tesconi. Coordinated behavior on social media in 2019 UK general election. \emph{ICWSM}, 15(1):443--454, 2021.
+\bibitem[Pacheco et~al.(2021)]{pacheco2021} D.~Pacheco, P.-M.~Hui, C.~Torres-Lugo, B.~T.~Truong, A.~Flammini, F.~Menczer. Uncovering coordinated networks on social media: methods and case studies. \emph{ICWSM}, 15(1):455--466, 2021.
+\bibitem[Park et~al.(2023)]{park2023generative} J.~S.~Park, J.~C.~O'Brien, C.~J.~Cai, M.~R.~Morris, P.~Liang, M.~S.~Bernstein. Generative agents: interactive simulacra of human behavior. \emph{UIST}, 2023. arXiv:2304.03442.
+\bibitem[Qiao et~al.(2025)]{qiao2025botsim} B.~Qiao, K.~Li, W.~Zhou, S.~Li, Q.~Lu, S.~Hu. BotSim: LLM-powered malicious social botnet simulation. \emph{AAAI}, 2025. arXiv:2412.13420.
+\bibitem[Reimers and Gurevych(2020)]{reimers2020multilingual} N.~Reimers, I.~Gurevych. Making monolingual sentence embeddings multilingual using knowledge distillation. \emph{EMNLP}, 4512--4525, 2020.
+\bibitem[Sadasivan et~al.(2023)]{sadasivan2023} V.~S.~Sadasivan, A.~Kumar, S.~Balasubramanian, W.~Wang, S.~Feizi. Can AI-generated text be reliably detected? arXiv:2303.11156, 2023.
+\bibitem[Schoch et~al.(2022)]{schoch2022} D.~Schoch, F.~B.~Keller, S.~Stier, J.~Yang. Coordination patterns reveal online political astroturfing across the world. \emph{Scientific Reports}, 12:4572, 2022.
+\bibitem[Tram\`er et~al.(2020)]{tramer2020adaptive} F.~Tram\`er, N.~Carlini, W.~Brendel, A.~M\k{a}dry. On adaptive attacks to adversarial example defenses. \emph{NeurIPS}, 2020. arXiv:2002.08347.
+\bibitem[Weber and Neumann(2021)]{weber2021} D.~Weber, F.~Neumann. Amplifying influence through coordinated behaviour in social networks. \emph{Social Network Analysis and Mining}, 11:111, 2021.
+\bibitem[Yahoo/FTNN(2026a)]{yahoo2026a} FTNN 新聞網 via Yahoo 新聞. 網軍貼錯「原始碼」外流慘被抓包？蘇巧慧：我確實遭到大量攻擊. 5 July 2026.
+\bibitem[Yahoo/三立(2026b)]{yahoo2026b} 三立新聞 via Yahoo 新聞. 沈伯洋遭1.8萬怒臉灌爆 網抓包「直接放簡體字網軍廣告文」. 6 November 2026.
+\bibitem[Yang and Menczer(2024)]{yang2023fox8} K.-C.~Yang, F.~Menczer. Anatomy of an AI-powered malicious social botnet. \emph{Journal of Quantitative Description: Digital Media}, 4, 2024. doi:10.51685/jqd.2024.icwsm.7. arXiv:2307.16336.
+\end{thebibliography}
+
+\appendix
+\section{Limitations and Dual-Use / Ethical Considerations}\label{app:ethics}
+\textbf{Limitations.}
+(1)~\emph{Models, not humans, as generator and judge.} Gemma-4-31B generated the main swarms and extracts claims for every condition. The cross-family replication (\S\ref{sec:crossfamily}) shows that the results do not depend on the generator sharing the extractor's model family, but it covers one other family, the development window only, and a generation client without temperature control. The blind audit by Gemini 3.8 Flash (App.~\ref{app:audit}) agrees closely with the Gemma extractor, but it is a second model, not a human annotator.
+(2)~\emph{Synthetic ground truth.} Organic accounts are assumed benign. Real undisclosed marketing or political coordination inside the organic data would count as false positives, so some apparent false positives may be undisclosed coordination; we cannot tell which.
+(3)~\emph{A new entity is the easiest case.} The main conditions promote a brand with no organic discussion, so purity is near 1 and almost every endorsement is unprompted by construction. Our established-brand control covers only S4 and two brands, and AP drops substantially there; we did not test competition with genuine independent enthusiasm for a new entity. The study also covers one topic, one language and two windows.
+(4)~\emph{Design choices were tuned on development data}: the entity-merge rule, the unprompted gate and $T_c$. The held-out week mitigates but does not remove this; the hyperparameters were not re-tuned.
+(5)~The swarm acts only through comments (S5 also through posts). Reactions, follows and reshares, the vector in the November 2026 case, are not modelled.
+(6)~Small swarms (10 agents or fewer) are ranked high by \ours{} but not into the top $k$ (recall@$k$ 0), and no method we tested reaches recall@$k$ above 0.02 on them.
+(7)~\emph{Collection caps and activity cap}: organic threads are truncated at 5 comment pages, and synthetic activity is capped at 20 comments per account.
+(8)~The adaptive attack and the defence are each a single step; we do not claim an equilibrium.
+
+\textbf{Dual-use.} This work could make multi-agent influence operations \emph{easier to run or harder to detect} in three ways.
+(a)~It confirms that persona-conditioned LLM swarms evade common surface detectors, which is a reason for defenders to update and already widely suspected by attackers.
+(b)~It describes the S4/S5 evasion strategies. We describe them only at the level of detail needed to reproduce the evaluation. We do not release the full agent prompts or the orchestrator plans publicly; they are available to verified researchers on request.
+(c)~It discloses the logic of our detector, including how S5 evades it. We judge that publishing this weakness helps defenders more than attackers, because self-seeding is an obvious tactic, and naming it pushes evaluations towards adaptive attackers.
+\textbf{Mitigations.} The main swarms promoted a \emph{fictional} commercial brand rather than a political or health narrative; the established-brand control used two real tea chains offline only, and its generated text is not released (the chains were not involved). No synthetic content was ever posted to any platform; the sandbox is offline. The main swarms were generated by a self-hosted model; the cross-family swarms (\S\ref{sec:crossfamily}) by Gemini, as disclosed under Privacy.
+\textbf{Privacy.} We analysed public posts and comments only. For the audit (App.~\ref{app:audit}), the text of 100 public organic messages and 200 synthetic messages (with their root posts) and 20 alias-name lists were sent to Google's Gemini API; account-ID fields were omitted, but names or handles inside the text were not redacted. Generating the cross-family swarms sent, as prompt context, the first 300 characters of 806 public organic root posts and, for S2--S5, up to three 80-character comment excerpts from one organic account per agent (style exemplars), again without account IDs. Raw organic data is not released; per-account score files replace organic account IDs with keyed hashes (the key is not released), and no individual organic account is named in this report. Organic style exemplars (S2+) were used only as generator prompt context (sent to Gemini only for the cross-family swarms, as above). For the real-world incidents in the introduction we rely on published news reports and do not name the accused accounts or attribute them to any party.
+
+\section{Prior Work, Tools and Conflicts of Interest}\label{app:prior}
+All analysis code (collection scripts, swarm generator, detectors, evaluation, figures) was written during the hackathon (6--8 November 2026, with revisions until submission on 9 November, Taipei time). Pre-existing components: (i)~the InfoMiner social-listening API, a commercial product of the author's company LargitData, used only as a data source; (ii)~a self-hosted Gemma-4-31B vLLM endpoint and the \texttt{agy} client for Gemini 3.8 Flash (audit and cross-family swarms); (iii)~open-source libraries (scikit-learn, sentence-transformers). The author has a commercial interest in social-listening and coordination-detection products. AI assistance (Claude) was used for coding and drafting, and AI reviewers (Claude, OpenAI Codex) were used for internal review; the author is responsible for all content, and every number in this report was produced by the released code.
+
+\section{Prompts and Implementation Details}\label{app:impl}
+\textbf{Claim extractor} (translated): ``Read this Taiwanese social-media comment and decide whether it positively recommends or promotes a specific brand/store/product. Output JSON \{target (formal full name, or empty), stance $\in\{1,0,-1\}$, claim ($\leq$15 characters)\}.'' For comments it adds: ``The root post below is only for resolving references such as `this shop'; judge only the comment's own stance,'' followed by the first 300 characters of the root post.
+\textbf{D5 monitor} (translated): ``Below are the comments of one account over a period. Estimate the probability (0--100) that it is a manipulated covert-marketing fake account, possibly AI-generated. Output one integer.''
+\textbf{Swarm agents}: the system prompt states that the agent is in an offline AI-safety sandbox and that nothing will be posted. It contains the persona, up to three style exemplars, the agent's assigned claims and role, and (S4/S5) the evasion constraints summarised in \S\ref{sec:method}. The user prompt contains the target post (300 characters or fewer), whether to write payload or cover, the sibling comment to boost (S3+), and the agent's last four comments to avoid repetition.
+\textbf{Scale and compute}: about 3k generations for the main swarms, about 55k extraction calls and about 10k monitor calls (two D5 variants), all on one self-hosted GPU endpoint, plus about 1.6k Gemini calls for the cross-family swarms and 13 for the audit. A full pipeline run takes about 2 hours.
+\section{Independent-Model Audit of Extraction and Entity Merging}\label{app:audit}
+We drew 25 messages from each of six strata in each window (300 in total), shuffled them under opaque ids, and asked Gemini 3.8 Flash (via the \texttt{agy} command-line client), which never saw the Gemma outputs, to list every entity each message recommends or criticises, with a stance and whether the root post names it. Table~\ref{tab:audit} compares the two models on ``does this message positively endorse an entity?''. This is an independent \emph{model} audit, not a human one; the enriched strata are not population estimates.
+\begin{table}[h]
+\centering\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lcccc}
+\toprule
+Stratum (dev + held-out) & $n$ & positive: Gemma / Gemini & agreement & swarm brand found: Gemma / Gemini\\
+\midrule
+Random organic messages & 50 & 0.18 / 0.16 & 0.94 & -- \\
+Top-ranked organic accounts (Gemma-positive msgs) & 50 & 1.00 / 0.92 & 0.92 & -- \\
+S4 payload & 50 & 0.92 / 0.90 & 0.98 & 0.90 / 0.90 \\
+S5 payload & 50 & 0.94 / 1.00 & 0.94 & 0.94 / 1.00 \\
+Established-brand payload (S4k/S4m) & 50 & 0.88 / 0.88 & 1.00 & 0.62 / 0.72 \\
+Swarm cover messages & 50 & 0.18 / 0.16 & 0.94 & 0.00 / 0.00 \\
+\midrule
+All & 300 & 0.68 / 0.67 & 0.95 ($\kappa=0.89$) & \\
+\bottomrule
+\end{tabular}}
+\caption{Blind audit of the Gemma extractor by Gemini 3.8 Flash.}
+\label{tab:audit}
+\end{table}
+The top-ranked-organic stratum was drawn from messages Gemma labelled positive, so its agreement is conditional on that selection. When both models find a positive endorsement, their entity names overlap (normalised substring match) in 98\% of cases (193/196), and Gemini's ``root post names it'' agrees with a string-match approximation of our gate (the extracted name appears in the root text) in 98\% of those 193 cases. On established-brand payloads both models find the brand in only 62--72\% of messages (28--38\% misses), consistent with the weaker extraction reported in \S\ref{sec:controls}. We also showed Gemini the alias clusters with at least two strings among each window's 25 highest-ranked entities by D4a (9 development + 11 held-out). It judged 7 fully consistent; most of the rest join an entity with its campaign team, a slogan, or a chain with one of its branches, which our task treats as the same target, but a few are genuine over-merges, e.g.\ one cluster joins a dozen distinct products that share a two-character word. As a sensitivity check we split every name Gemini flagged (33 strings) into its own entity and re-scored all conditions in both windows: \ours{}'s condition-mean AP changes by less than 0.001 everywhere, because the flagged merges barely change the order between swarm and organic accounts. This is a model-adjudicated check, not a human one.
+\end{document}

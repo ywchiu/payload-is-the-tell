@@ -1,0 +1,14 @@
+[project]
+name = "swarm-cib"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "requests",
+    "numpy",
+    "scikit-learn",
+    "pandas",
+    "matplotlib",
+    "sentence-transformers",
+    "httpx",
+    "scipy>=1.17.1",
+]
