@@ -4,6 +4,7 @@
 Mostly not with today's signals, but there is one thing an AI swarm cannot hide: *what it is trying to sell.*
 
 📄 Report: [PayloadIsTheTell_ApartSwarm2026.pdf](PayloadIsTheTell_ApartSwarm2026.pdf)
+· ⚠️ [Erratum (11 Nov 2026)](ERRATUM.md): corrected established-brand control (可不可); conclusions unchanged, result stronger
 · Apart Research Swarm Alignment Hackathon, November 2026
 · Track: Multi-Agent Oversight & Control
 
@@ -64,7 +65,7 @@ PayloadConv:
 | **PayloadConv** | Finds the swarm with high precision: average precision 0.69–0.99 when the swarm is just 1% of accounts. |
 | Repeated on a later week, with every setting frozen | Still works (average precision 0.88–1.00). |
 | Swarm written by a different AI model (Gemini) | Still works (average precision 0.71–0.98). |
-| Swarm promotes a real, already-popular brand | Weaker but still far ahead of every other method (0.49–0.88 vs ≤ 0.07). |
+| Swarm promotes a real, already-popular brand | Weaker but still far ahead of every other method (0.56–0.88 vs ≤ 0.07; corrected, see erratum). |
 | Fixed alarm (≤ 0.5% of real users flagged) | Catches 84–100% of non-adaptive swarm accounts. |
 | **Adaptive swarm that opens its own threads** | **Defeats it** (back to chance). A provenance-aware variant recovers the ranking, but not yet the precision. |
 

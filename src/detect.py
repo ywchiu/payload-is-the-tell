@@ -23,6 +23,10 @@ import llm
 
 DATA = Path(os.environ.get("DATA_DIR") or Path(__file__).resolve().parent.parent / "data").resolve()
 MIN_MSGS = 2
+# Erratum (2026-11-11): everyday words that contain a short brand alias as a substring are masked before the
+# root-text match of the unprompted gate (e.g. 「可不可以」 'can you' contains the brand 可不可). Set to () for the
+# behaviour of the submitted version. See ERRATUM.md.
+COLLIDE = ("可不可以", "都可以")
 DT = 3600
 _EMB = None
 
@@ -173,6 +177,8 @@ def d4_claim(msgs, acc, scored, claims, thr=0.5, inherit=False):
             # (inherit) replies echoing a *promotional* root inherit its provenance instead of being excused
             return inherit and ann[r]["stance"] > 0
         rt = msgs[r]["text"]
+        for w in COLLIDE:
+            rt = rt.replace(w, " ")
         return not any(len(n) >= 2 and n in rt for n in cnames[c])
 
     pos_acc = defaultdict(set); uns_acc = defaultdict(set); n_pos = defaultdict(int); n_all = defaultdict(int)
